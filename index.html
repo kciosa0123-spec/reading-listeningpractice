@@ -8,6 +8,7 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     input[type=range] { accent-color: #4f46e5; }
+    /* テキストエリアの選択（ハイライト）色を調整 */
     textarea::selection { background: #c7d2fe; color: #1e1b4b; }
   </style>
 </head>
@@ -81,6 +82,7 @@
         <textarea id="memo" rows="2" placeholder="分からない単語や読解時の気づきなどをメモできます..."
           class="w-full p-4 rounded-xl border-2 resize-y transition-colors duration-200 bg-slate-50 border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:outline-none"></textarea>
       </div>
+
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -150,7 +152,7 @@
           </div>
 
           <div>
-            <label class="text-sm font-bold text-slate-600 block mb-2">音声の種類 (Voice)</label>
+            <label class="text-sm font-bold text-slate-600 block mb-2">音声の種類 (Voice - 英語のみ)</label>
             <select id="voice-select" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-slate-700 cursor-pointer font-medium">
               <option value="">音声を読み込み中...</option>
             </select>
@@ -203,7 +205,7 @@
   <script>
     lucide.createIcons();
 
-    // --- HTML/CSVエスケープ ---
+    // --- HTMLエスケープ関数 ---
     function escapeHtml(str = '') {
       return String(str)
         .replace(/&/g, '&amp;')
@@ -212,6 +214,8 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
+
+    // --- CSVエスケープ関数 ---
     function escapeCsv(value) {
       const str = String(value ?? '').replace(/"/g, '""');
       return `"${str}"`;
@@ -265,14 +269,15 @@
     let isPaused = false;
     let voiceLoadRetryCount = 0;
 
-    const HISTORY_KEY = 'readingPracticeHistory_v3';
+    const HISTORY_KEY = 'readingPracticeHistory_v4';
     let historyData = [];
 
-    // ★追加: 除外する特殊音声（お遊び音声）のリスト
+    // ★修正: 日本語環境でローカライズ(翻訳)されてしまう特殊音声名も除外リストに追加
     const excludedVoices = [
       'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 
       'Deranged', 'Good News', 'Hysterical', 'Pipe Organ', 'Trinoids', 
-      'Whisper', 'Zarvox', 'Superstar', 'Ralph', 'Junior', 'Princess'
+      'Whisper', 'Zarvox', 'Superstar', 'Ralph', 'Junior', 'Princess',
+      'ベル', '震え', 'Fred', '道化', 'Kathy', 'オルガン', 'スーパースター', 'トリノイド', 'ささやき声'
     ];
 
     // --- Utility Functions ---
@@ -408,6 +413,7 @@
       }
     });
 
+    // --- CSVエクスポート処理 ---
     btnExportCsv.addEventListener('click', () => {
       if (historyData.length === 0) {
         alert('出力する履歴がありません。');
@@ -554,7 +560,7 @@
     function loadVoices() {
       voices = window.speechSynthesis.getVoices();
       
-      // ★修正: Android Edge対策（リストが取得できない場合はフォールバック用の項目を出す）
+      // リストが取得できない場合のフォールバック（主にAndroid Edge向け）
       if (voices.length === 0) {
         if (voiceLoadRetryCount < 50) {
           voiceLoadRetryCount++;
@@ -569,7 +575,7 @@
       voiceSelect.innerHTML = '';
       const savedVoice = localStorage.getItem('prefVoiceWPM');
 
-      // ★修正: "en"から始まるものに限定（マニプリ語などを排除）、かつブラックリストの変な声を排除
+      // "en"から始まるものに限定し、かつブラックリストの変な声を排除
       const enVoices = voices.filter(v => {
         const isEnglish = v.lang.toLowerCase().startsWith('en');
         const isNotExcluded = !excludedVoices.some(ex => v.name.includes(ex));
@@ -584,7 +590,11 @@
       enVoices.forEach(voice => {
         const option = document.createElement('option');
         option.value = voice.name;
-        if (voice.name.includes("Google") && voice.name.includes("English")) {
+        
+        // ★修正: Android ChromeやGoogle系の音声はハイライト非対応である可能性が高いため、条件を広げて警告を表示
+        const isLikelyUnsupported = voice.name.includes("Google") || (/Android/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent));
+        
+        if (isLikelyUnsupported) {
             option.textContent = `${voice.name} (${voice.lang}) ※ハイライト非対応`;
         } else {
             option.textContent = `${voice.name} (${voice.lang})`;
@@ -618,14 +628,13 @@
       
       utterance.rate = parseFloat(rateSlider.value);
       
-      // ★修正: Android Chrome対策（明示的に言語を指定しないと日本語で読むバグを回避）
       if (voices.length === 0 || voiceSelect.value === 'default') {
         utterance.lang = 'en-US';
       } else {
         const selectedVoice = voices.find(v => v.name === voiceSelect.value);
         if (selectedVoice) {
           utterance.voice = selectedVoice;
-          utterance.lang = selectedVoice.lang; // 明示的に言語を指定
+          utterance.lang = selectedVoice.lang; 
         } else {
           utterance.lang = 'en-US';
         }
