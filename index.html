@@ -8,7 +8,6 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     input[type=range] { accent-color: #4f46e5; }
-    /* テキストエリアの選択（ハイライト）色を調整 */
     textarea::selection { background: #c7d2fe; color: #1e1b4b; }
   </style>
 </head>
@@ -82,7 +81,6 @@
         <textarea id="memo" rows="2" placeholder="分からない単語や読解時の気づきなどをメモできます..."
           class="w-full p-4 rounded-xl border-2 resize-y transition-colors duration-200 bg-slate-50 border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:outline-none"></textarea>
       </div>
-
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -152,7 +150,7 @@
           </div>
 
           <div>
-            <label class="text-sm font-bold text-slate-600 block mb-2">音声の種類 (Voice - 英語のみ)</label>
+            <label class="text-sm font-bold text-slate-600 block mb-2">音声の種類 (Voice)</label>
             <select id="voice-select" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-slate-700 cursor-pointer font-medium">
               <option value="">音声を読み込み中...</option>
             </select>
@@ -205,7 +203,7 @@
   <script>
     lucide.createIcons();
 
-    // --- HTMLエスケープ関数 ---
+    // --- HTML/CSVエスケープ ---
     function escapeHtml(str = '') {
       return String(str)
         .replace(/&/g, '&amp;')
@@ -214,8 +212,6 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
-
-    // --- CSVエスケープ関数 ---
     function escapeCsv(value) {
       const str = String(value ?? '').replace(/"/g, '""');
       return `"${str}"`;
@@ -271,6 +267,13 @@
 
     const HISTORY_KEY = 'readingPracticeHistory_v3';
     let historyData = [];
+
+    // ★追加: 除外する特殊音声（お遊び音声）のリスト
+    const excludedVoices = [
+      'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 
+      'Deranged', 'Good News', 'Hysterical', 'Pipe Organ', 'Trinoids', 
+      'Whisper', 'Zarvox', 'Superstar', 'Ralph', 'Junior', 'Princess'
+    ];
 
     // --- Utility Functions ---
     function showError(msg) {
@@ -348,7 +351,6 @@
         const sNumHtml = record.studentNumber ? escapeHtml(record.studentNumber) : '';
         const sNameHtml = record.studentName ? escapeHtml(record.studentName) : '<span class="text-slate-400 italic">No Name</span>';
         
-        // 番号が入力されている場合は "番号 - 名前" の形式にする
         const displayNameHtml = sNumHtml 
           ? `<span class="text-slate-500 font-normal mr-1">#${sNumHtml}</span>${sNameHtml}`
           : sNameHtml;
@@ -406,7 +408,6 @@
       }
     });
 
-    // --- CSVエクスポート処理 ---
     btnExportCsv.addEventListener('click', () => {
       if (historyData.length === 0) {
         alert('出力する履歴がありません。');
@@ -525,7 +526,7 @@
       wpmResult.classList.add('hidden');
     });
 
-    // --- Text-to-Speech Logic (English Only & Chrome Bug Fixes) ---
+    // --- Text-to-Speech Logic ---
     function initTTS() {
       if (!('speechSynthesis' in window)) {
         showError('お使いのブラウザは音声読み上げ機能に対応していません。');
@@ -552,23 +553,31 @@
 
     function loadVoices() {
       voices = window.speechSynthesis.getVoices();
+      
+      // ★修正: Android Edge対策（リストが取得できない場合はフォールバック用の項目を出す）
       if (voices.length === 0) {
         if (voiceLoadRetryCount < 50) {
           voiceLoadRetryCount++;
           setTimeout(loadVoices, 100);
+          return;
         } else {
-          voiceSelect.innerHTML = '<option value="">音声の読み込みに失敗しました</option>';
+          voiceSelect.innerHTML = '<option value="default">System Default (English)</option>';
+          return;
         }
-        return;
       }
 
       voiceSelect.innerHTML = '';
       const savedVoice = localStorage.getItem('prefVoiceWPM');
 
-      const enVoices = voices.filter(v => v.lang.toLowerCase().includes('en'));
+      // ★修正: "en"から始まるものに限定（マニプリ語などを排除）、かつブラックリストの変な声を排除
+      const enVoices = voices.filter(v => {
+        const isEnglish = v.lang.toLowerCase().startsWith('en');
+        const isNotExcluded = !excludedVoices.some(ex => v.name.includes(ex));
+        return isEnglish && isNotExcluded;
+      });
 
       if (enVoices.length === 0) {
-        voiceSelect.innerHTML = '<option value="">英語の音声が見つかりません</option>';
+        voiceSelect.innerHTML = '<option value="default">System Default (English)</option>';
         return;
       }
 
@@ -609,8 +618,18 @@
       
       utterance.rate = parseFloat(rateSlider.value);
       
-      const selectedVoice = voices.find(v => v.name === voiceSelect.value);
-      if (selectedVoice) utterance.voice = selectedVoice;
+      // ★修正: Android Chrome対策（明示的に言語を指定しないと日本語で読むバグを回避）
+      if (voices.length === 0 || voiceSelect.value === 'default') {
+        utterance.lang = 'en-US';
+      } else {
+        const selectedVoice = voices.find(v => v.name === voiceSelect.value);
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+          utterance.lang = selectedVoice.lang; // 明示的に言語を指定
+        } else {
+          utterance.lang = 'en-US';
+        }
+      }
 
       utterance.onboundary = (e) => {
         if (e.name === 'word') {
