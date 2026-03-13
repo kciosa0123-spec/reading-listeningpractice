@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>English Reading & Listening Practice</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    input[type=range] { accent-color: #4f46e5; }
+    /* テキストエリアの選択（ハイライト）色を調整 */
+    textarea::selection { background: #c7d2fe; color: #1e1b4b; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800">
+  <div class="max-w-6xl mx-auto space-y-6">
+    
+    <div class="bg-indigo-600 text-white rounded-2xl shadow-lg p-6 flex items-center gap-4">
+      <div class="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+        <i data-lucide="book-open" class="w-8 h-8"></i>
+      </div>
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">English Reading & Listening Practice</h1>
+        <p class="text-indigo-100 text-sm mt-1">リーディング速度（WPM）の測定と、リスニング・シャドーイング練習を行います</p>
+      </div>
+    </div>
+
+    <div id="error-container" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-start gap-3">
+      <i data-lucide="alert-circle" class="w-5 h-5 flex-shrink-0 mt-0.5"></i>
+      <p id="error-text" class="text-sm font-medium"></p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-6">
+      
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div class="md:col-span-3">
+          <label class="block text-sm font-bold text-slate-700 mb-2">Student Number</label>
+          <input id="student-number" type="text" placeholder="e.g. 12345"
+            class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors">
+        </div>
+        <div class="md:col-span-4">
+          <label class="block text-sm font-bold text-slate-700 mb-2">Student Name</label>
+          <input id="student-name" type="text" placeholder="e.g. Taro Yamada"
+            class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors">
+        </div>
+        <div class="md:col-span-5">
+          <label class="block text-sm font-bold text-slate-700 mb-2">Topic / Prompt</label>
+          <input id="topic" type="text" placeholder="e.g. Lesson 1: Machine Learning"
+            class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors">
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-3">
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+          <label for="shared-text" class="font-bold text-slate-700 flex items-center gap-2">
+            <i data-lucide="file-text" class="w-5 h-5 text-indigo-500"></i>
+            学習する英文 (Transcript)
+          </label>
+          <div class="flex items-center gap-4">
+            <button id="btn-sample" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors flex items-center gap-1">
+              <i data-lucide="file-input" class="w-4 h-4"></i> サンプル
+            </button>
+            <div class="w-px h-4 bg-slate-300"></div>
+            <button id="btn-clear-text" class="text-sm text-rose-500 hover:text-rose-700 font-medium transition-colors flex items-center gap-1">
+              <i data-lucide="trash-2" class="w-4 h-4"></i> クリア
+            </button>
+            
+            <span class="text-sm font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full ml-2">
+              <span id="word-count">0</span> words
+            </span>
+          </div>
+        </div>
+        <textarea
+          id="shared-text"
+          placeholder="ここに英文を貼り付けてください..."
+          class="w-full min-h-[200px] p-5 rounded-xl border-2 resize-y transition-colors duration-200 text-lg leading-relaxed bg-slate-50 border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:outline-none"
+        ></textarea>
+      </div>
+
+      <div>
+        <label class="block text-sm font-bold text-slate-700 mb-2">Reflection / Memo</label>
+        <textarea id="memo" rows="2" placeholder="分からない単語や読解時の気づきなどをメモできます..."
+          class="w-full p-4 rounded-xl border-2 resize-y transition-colors duration-200 bg-slate-50 border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:outline-none"></textarea>
+      </div>
+
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2 mb-6 pb-4 border-b border-slate-100">
+          <i data-lucide="timer" class="w-5 h-5 text-emerald-500"></i>
+          WPM Calculator (Reading)
+        </h2>
+
+        <div id="wpm-result" class="hidden mb-6 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center animate-fade-in">
+          <div class="flex justify-center items-end gap-8">
+            <div>
+              <div class="text-xs text-emerald-600 font-bold uppercase tracking-wider mb-1">Speed</div>
+              <div class="text-4xl font-extrabold text-emerald-700"><span id="wpm-value">0</span> <span class="text-lg">WPM</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-emerald-600 font-bold uppercase tracking-wider mb-1">Time</div>
+              <div id="wpm-time-value" class="text-2xl font-bold text-emerald-700">0:00.0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex-grow flex flex-col justify-center items-center gap-6">
+          <div class="flex items-center gap-8">
+            <div class="text-center">
+              <div class="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Live Time</div>
+              <div id="live-time" class="text-4xl font-mono font-bold text-slate-700">0:00.0</div>
+            </div>
+            <div class="h-12 w-px bg-slate-200"></div>
+            <div class="text-center">
+              <div class="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Status</div>
+              <div id="wpm-status" class="text-sm font-bold px-4 py-1.5 rounded-full bg-slate-100 text-slate-500">Ready</div>
+            </div>
+          </div>
+
+          <div class="w-full flex gap-3 mt-4">
+            <button id="btn-start-read" class="flex-1 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-4 rounded-xl font-bold transition-all shadow-md active:scale-95">
+              <i data-lucide="play" class="w-5 h-5 fill-current"></i> Start Reading
+            </button>
+            <button id="btn-finish-read" class="hidden flex-1 flex items-center justify-center gap-2 bg-rose-500 hover:bg-rose-600 text-white px-6 py-4 rounded-xl font-bold transition-all shadow-md active:scale-95 animate-pulse">
+              <i data-lucide="square" class="w-5 h-5 fill-current"></i> Finish
+            </button>
+            <button id="btn-reset-read" class="flex items-center justify-center px-5 py-4 rounded-xl font-bold transition-all bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 shadow-sm active:scale-95" title="Reset Timer">
+              <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2 mb-6 pb-4 border-b border-slate-100">
+          <i data-lucide="headphones" class="w-5 h-5 text-indigo-500"></i>
+          Text to Speech (Listening)
+        </h2>
+
+        <div class="space-y-5 mb-8">
+          <div>
+            <label class="text-sm font-bold text-slate-600 flex justify-between items-center mb-2">
+              <span>再生速度</span>
+              <span id="rate-display" class="bg-indigo-50 px-2 py-1 rounded-md text-indigo-700 font-mono">1.0x</span>
+            </label>
+            <input type="range" id="rate-slider" min="0.5" max="2.0" step="0.1" value="1.0" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-xs text-slate-400 mt-2 font-medium">
+              <span>遅い (0.5x)</span><span>標準 (1.0x)</span><span>速い (2.0x)</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-sm font-bold text-slate-600 block mb-2">音声の種類 (Voice - 英語のみ)</label>
+            <select id="voice-select" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-slate-700 cursor-pointer font-medium">
+              <option value="">音声を読み込み中...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-auto flex justify-center gap-3">
+          <button id="btn-play-audio" class="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-4 rounded-xl font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            <i data-lucide="play" class="w-5 h-5 fill-current"></i> <span id="play-btn-text">Play / Highlight</span>
+          </button>
+          
+          <button id="btn-pause-audio" class="hidden flex-1 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-4 rounded-xl font-bold transition-all shadow-md active:scale-95">
+            <i data-lucide="pause" class="w-5 h-5 fill-current"></i> Pause
+          </button>
+
+          <button id="btn-stop-audio" class="flex items-center justify-center px-6 py-4 rounded-xl font-bold transition-all bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" title="Stop">
+            <i data-lucide="square" class="w-5 h-5 fill-current"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-transparent mt-8">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 px-2">
+        <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="history" class="w-6 h-6 text-slate-500"></i> Reading History
+        </h2>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button id="btn-export-csv" class="flex-1 sm:flex-none flex items-center justify-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-lg transition-colors shadow-sm">
+            <i data-lucide="file-down" class="w-4 h-4"></i> Export CSV
+          </button>
+          <button id="btn-clear-history" class="text-sm text-red-500 hover:text-red-700 font-bold px-4 py-2.5 bg-red-50 rounded-lg hidden transition-colors">
+            履歴全削除
+          </button>
+        </div>
+      </div>
+      
+      <div id="empty-history" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-10 text-center text-slate-400">
+        <i data-lucide="timer-reset" class="mx-auto mb-3 w-12 h-12 text-slate-300"></i>
+        <p class="text-lg font-medium">履歴はありません。</p>
+        <p class="text-sm mt-1">Start Readingで読書を完了するとここに保存されます。</p>
+      </div>
+
+      <div id="history-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    lucide.createIcons();
+
+    // --- HTMLエスケープ関数 ---
+    function escapeHtml(str = '') {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // --- CSVエスケープ関数 ---
+    function escapeCsv(value) {
+      const str = String(value ?? '').replace(/"/g, '""');
+      return `"${str}"`;
+    }
+
+    // --- DOM Elements ---
+    const studentNumberInput = document.getElementById('student-number');
+    const studentNameInput = document.getElementById('student-name');
+    const topicInput = document.getElementById('topic');
+    const memoInput = document.getElementById('memo');
+
+    const sharedText = document.getElementById('shared-text');
+    const wordCountDisplay = document.getElementById('word-count');
+    const btnSample = document.getElementById('btn-sample');
+    const btnClearText = document.getElementById('btn-clear-text');
+    const errorContainer = document.getElementById('error-container');
+    const errorText = document.getElementById('error-text');
+
+    const wpmResult = document.getElementById('wpm-result');
+    const wpmValue = document.getElementById('wpm-value');
+    const wpmTimeValue = document.getElementById('wpm-time-value');
+    const liveTime = document.getElementById('live-time');
+    const wpmStatus = document.getElementById('wpm-status');
+    const btnStartRead = document.getElementById('btn-start-read');
+    const btnFinishRead = document.getElementById('btn-finish-read');
+    const btnResetRead = document.getElementById('btn-reset-read');
+
+    const rateSlider = document.getElementById('rate-slider');
+    const rateDisplay = document.getElementById('rate-display');
+    const voiceSelect = document.getElementById('voice-select');
+    const btnPlayAudio = document.getElementById('btn-play-audio');
+    const btnPauseAudio = document.getElementById('btn-pause-audio');
+    const btnStopAudio = document.getElementById('btn-stop-audio');
+    const playBtnText = document.getElementById('play-btn-text');
+
+    const historyList = document.getElementById('history-list');
+    const emptyHistory = document.getElementById('empty-history');
+    const btnClearHistory = document.getElementById('btn-clear-history');
+    const btnExportCsv = document.getElementById('btn-export-csv');
+
+    // --- State ---
+    let wordCount = 0;
+    
+    let isReading = false;
+    let readingTime = 0;
+    let readingStartTime = 0;
+    let readingInterval = null;
+
+    let voices = [];
+    let isPlaying = false;
+    let isPaused = false;
+    let voiceLoadRetryCount = 0;
+
+    const HISTORY_KEY = 'readingPracticeHistory_v3';
+    let historyData = [];
+
+    // --- Utility Functions ---
+    function showError(msg) {
+      errorText.textContent = msg;
+      errorContainer.classList.remove('hidden');
+    }
+    function hideError() {
+      errorContainer.classList.add('hidden');
+    }
+    function formatTime(ms) {
+      const totalSeconds = Math.floor(ms / 1000);
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      const ds = Math.floor((ms % 1000) / 100);
+      return `${m}:${s.toString().padStart(2, '0')}.${ds}`;
+    }
+    function getWordCount(str) {
+      return str.trim().split(/\s+/).filter(w => w.length > 0).length;
+    }
+
+    // --- Event Listeners: Text Input ---
+    sharedText.addEventListener('input', (e) => {
+      wordCount = getWordCount(e.target.value);
+      wordCountDisplay.textContent = wordCount;
+      updateTtsUI();
+    });
+
+    btnSample.addEventListener('click', () => {
+      if (isReading) return;
+      sharedText.value = "Machine learning is a subset of artificial intelligence that focuses on building systems that learn from data. Instead of being explicitly programmed to perform a task, these systems use algorithms to identify patterns in data and make predictions or decisions. Over time, as they are exposed to more data, their performance improves. This technology is behind many of the services we use daily, such as recommendation engines on streaming platforms, voice assistants on our smartphones, and fraud detection systems in banking.";
+      updateTextStats();
+    });
+
+    btnClearText.addEventListener('click', () => {
+      if (isReading) return;
+      sharedText.value = '';
+      updateTextStats();
+      if (isPlaying || isPaused) handleStop();
+    });
+
+    function updateTextStats() {
+      wordCount = getWordCount(sharedText.value);
+      wordCountDisplay.textContent = wordCount;
+      updateTtsUI();
+      hideError();
+    }
+
+    // --- History Logic ---
+    function loadHistory() {
+      try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        if (raw) historyData = JSON.parse(raw);
+      } catch (e) { historyData = []; }
+      renderHistory();
+    }
+
+    function saveHistory() {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData));
+    }
+
+    function renderHistory() {
+      if (historyData.length === 0) {
+        emptyHistory.classList.remove('hidden');
+        btnClearHistory.classList.add('hidden');
+        historyList.innerHTML = '';
+        return;
+      }
+      emptyHistory.classList.add('hidden');
+      btnClearHistory.classList.remove('hidden');
+      
+      historyList.innerHTML = historyData.map(record => {
+        const dateObj = new Date(record.date);
+        const dateString = `${dateObj.getMonth()+1}/${dateObj.getDate()} ${dateObj.getHours().toString().padStart(2,'0')}:${dateObj.getMinutes().toString().padStart(2,'0')}`;
+        
+        const sNumHtml = record.studentNumber ? escapeHtml(record.studentNumber) : '';
+        const sNameHtml = record.studentName ? escapeHtml(record.studentName) : '<span class="text-slate-400 italic">No Name</span>';
+        
+        // 番号が入力されている場合は "番号 - 名前" の形式にする
+        const displayNameHtml = sNumHtml 
+          ? `<span class="text-slate-500 font-normal mr-1">#${sNumHtml}</span>${sNameHtml}`
+          : sNameHtml;
+          
+        const topicHtml = record.topic ? escapeHtml(record.topic) : '<span class="text-slate-400 italic">No Topic</span>';
+
+        return `
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col hover:shadow-md transition-shadow relative group">
+            <div class="flex justify-between items-center mb-3">
+              <span class="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-1 rounded-md">${dateString}</span>
+              <button onclick="deleteRecord('${record.id}')" class="text-slate-300 hover:text-red-500 transition-colors" title="Delete">
+                <i data-lucide="trash" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <div class="mb-3 text-sm font-medium text-slate-700">
+              <div class="flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5 text-slate-400"></i> ${displayNameHtml}</div>
+              <div class="flex items-center gap-1.5 mt-1"><i data-lucide="message-square" class="w-3.5 h-3.5 text-slate-400"></i> ${topicHtml}</div>
+            </div>
+
+            <div class="flex items-end gap-2 mb-3">
+              <span class="text-3xl font-extrabold text-emerald-600 leading-none">${record.wpm}</span>
+              <span class="text-sm font-bold text-emerald-700/70 mb-0.5">WPM</span>
+            </div>
+            
+            <div class="flex gap-4 text-xs font-semibold text-slate-500 mb-3 pb-3 border-b border-slate-100">
+              <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5"></i> ${record.time}</span>
+              <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-3.5 h-3.5"></i> ${record.words} words</span>
+            </div>
+            
+            <p class="text-sm text-slate-600 italic line-clamp-2 leading-relaxed mb-3">"${record.textPreview}"</p>
+            
+            ${record.memo ? `
+            <div class="mt-auto bg-amber-50 border border-amber-100 p-3 rounded-xl text-sm text-slate-700 whitespace-pre-wrap">
+              <div class="text-[10px] font-bold text-amber-600 uppercase mb-1">Memo</div>
+              ${escapeHtml(record.memo)}
+            </div>` : ''}
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    window.deleteRecord = function(id) {
+      historyData = historyData.filter(r => r.id !== id);
+      saveHistory();
+      renderHistory();
+    };
+
+    btnClearHistory.addEventListener('click', () => {
+      if (confirm('すべての測定履歴を削除しますか？')) {
+        historyData = [];
+        saveHistory();
+        renderHistory();
+      }
+    });
+
+    // --- CSVエクスポート処理 ---
+    btnExportCsv.addEventListener('click', () => {
+      if (historyData.length === 0) {
+        alert('出力する履歴がありません。');
+        return;
+      }
+      
+      const headers = ['Date', 'Student Number', 'Student Name', 'Topic', 'WPM', 'Time', 'Words', 'Memo', 'Transcript'];
+      
+      const rows = historyData.map(rec => [
+        rec.date,
+        escapeCsv(rec.studentNumber),
+        escapeCsv(rec.studentName),
+        escapeCsv(rec.topic),
+        rec.wpm,
+        rec.time,
+        rec.words,
+        escapeCsv(rec.memo),
+        escapeCsv(rec.fullText)
+      ]);
+      
+      const bom = '\uFEFF';
+      const csvContent = bom + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'reading_practice_history.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // --- WPM Calculator Logic ---
+    btnStartRead.addEventListener('click', () => {
+      if (wordCount === 0) {
+        showError("測定を開始するには、英文を入力してください。");
+        return;
+      }
+      hideError();
+      wpmResult.classList.add('hidden');
+      isReading = true;
+      readingTime = 0;
+      readingStartTime = Date.now();
+      
+      sharedText.readOnly = true;
+      sharedText.classList.add('bg-slate-100', 'border-emerald-200');
+      sharedText.classList.remove('bg-slate-50', 'hover:border-slate-300', 'focus:border-indigo-500', 'focus:bg-white');
+      
+      wpmStatus.textContent = 'Reading...';
+      wpmStatus.className = 'text-sm font-bold px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-700 animate-pulse';
+      liveTime.className = 'text-4xl font-mono font-bold text-emerald-600';
+      
+      btnStartRead.classList.add('hidden');
+      btnFinishRead.classList.remove('hidden');
+      btnResetRead.disabled = true;
+
+      readingInterval = setInterval(() => {
+        readingTime = Date.now() - readingStartTime;
+        liveTime.textContent = formatTime(readingTime);
+      }, 100);
+    });
+
+    btnFinishRead.addEventListener('click', () => {
+      isReading = false;
+      clearInterval(readingInterval);
+      
+      let calculatedWpm = 0;
+      const timeInMinutes = readingTime / 60000;
+      if (timeInMinutes > 0) {
+        calculatedWpm = Math.round(wordCount / timeInMinutes);
+        wpmValue.textContent = calculatedWpm;
+        wpmTimeValue.textContent = formatTime(readingTime);
+        wpmResult.classList.remove('hidden');
+
+        const preview = sharedText.value.substring(0, 50).replace(/\n/g, ' ') + '...';
+        
+        const newRecord = {
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          studentNumber: studentNumberInput.value.trim(),
+          studentName: studentNameInput.value.trim(),
+          topic: topicInput.value.trim(),
+          memo: memoInput.value.trim(),
+          wpm: calculatedWpm,
+          time: formatTime(readingTime),
+          words: wordCount,
+          textPreview: preview,
+          fullText: sharedText.value.trim() 
+        };
+        
+        historyData.unshift(newRecord);
+        saveHistory();
+        renderHistory();
+      }
+
+      wpmStatus.textContent = 'Finished';
+      wpmStatus.className = 'text-sm font-bold px-4 py-1.5 rounded-full bg-slate-100 text-slate-500';
+      liveTime.className = 'text-4xl font-mono font-bold text-slate-700';
+      
+      btnFinishRead.classList.add('hidden');
+      btnStartRead.classList.remove('hidden');
+      btnResetRead.disabled = false;
+    });
+
+    btnResetRead.addEventListener('click', () => {
+      if (isReading) return;
+      if (!isPlaying && !isPaused) {
+         sharedText.readOnly = false;
+         sharedText.classList.remove('bg-slate-100', 'border-emerald-200');
+         sharedText.classList.add('bg-slate-50', 'hover:border-slate-300', 'focus:border-indigo-500', 'focus:bg-white');
+      }
+      
+      readingTime = 0;
+      liveTime.textContent = '0:00.0';
+      wpmStatus.textContent = 'Ready';
+      wpmResult.classList.add('hidden');
+    });
+
+    // --- Text-to-Speech Logic (English Only & Chrome Bug Fixes) ---
+    function initTTS() {
+      if (!('speechSynthesis' in window)) {
+        showError('お使いのブラウザは音声読み上げ機能に対応していません。');
+        btnPlayAudio.disabled = true;
+        return;
+      }
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+      loadVoices();
+      
+      rateSlider.addEventListener('input', (e) => {
+        rateDisplay.textContent = parseFloat(e.target.value).toFixed(1) + 'x';
+      });
+      voiceSelect.addEventListener('change', (e) => {
+        localStorage.setItem('prefVoiceWPM', e.target.value);
+      });
+
+      btnPlayAudio.addEventListener('click', handlePlay);
+      btnPauseAudio.addEventListener('click', handlePause);
+      btnStopAudio.addEventListener('click', handleStop);
+
+      window.addEventListener('beforeunload', handleStop);
+      updateTtsUI();
+    }
+
+    function loadVoices() {
+      voices = window.speechSynthesis.getVoices();
+      if (voices.length === 0) {
+        if (voiceLoadRetryCount < 50) {
+          voiceLoadRetryCount++;
+          setTimeout(loadVoices, 100);
+        } else {
+          voiceSelect.innerHTML = '<option value="">音声の読み込みに失敗しました</option>';
+        }
+        return;
+      }
+
+      voiceSelect.innerHTML = '';
+      const savedVoice = localStorage.getItem('prefVoiceWPM');
+
+      const enVoices = voices.filter(v => v.lang.toLowerCase().includes('en'));
+
+      if (enVoices.length === 0) {
+        voiceSelect.innerHTML = '<option value="">英語の音声が見つかりません</option>';
+        return;
+      }
+
+      enVoices.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.name;
+        if (voice.name.includes("Google") && voice.name.includes("English")) {
+            option.textContent = `${voice.name} (${voice.lang}) ※ハイライト非対応`;
+        } else {
+            option.textContent = `${voice.name} (${voice.lang})`;
+        }
+        voiceSelect.appendChild(option);
+      });
+
+      if (savedVoice && enVoices.some(v => v.name === savedVoice)) {
+        voiceSelect.value = savedVoice;
+      } else {
+        voiceSelect.value = enVoices[0].name; 
+      }
+    }
+
+    function handlePlay() {
+      const text = sharedText.value.trim();
+      if (!text) return;
+
+      if (isPaused) {
+        window.speechSynthesis.resume();
+        isPaused = false;
+        isPlaying = true;
+        updateTtsUI();
+        return;
+      }
+
+      window.speechSynthesis.cancel(); 
+      const utterance = new SpeechSynthesisUtterance(sharedText.value);
+      
+      window._ttsUtterance = utterance; // Chrome bug fix
+      
+      utterance.rate = parseFloat(rateSlider.value);
+      
+      const selectedVoice = voices.find(v => v.name === voiceSelect.value);
+      if (selectedVoice) utterance.voice = selectedVoice;
+
+      utterance.onboundary = (e) => {
+        if (e.name === 'word') {
+          const currentText = sharedText.value;
+          let length = e.charLength;
+          if (!length) {
+            const substr = currentText.substring(e.charIndex);
+            const match = substr.match(/^[\w\u00C0-\u024F\u1E00-\u1EFF'-]+/); 
+            length = match ? match[0].length : 1;
+          }
+          
+          try {
+            if (document.activeElement !== sharedText) {
+                sharedText.focus(); 
+            }
+            sharedText.setSelectionRange(e.charIndex, e.charIndex + length);
+          } catch(err) {}
+        }
+      };
+
+      utterance.onend = () => {
+        isPlaying = false;
+        isPaused = false;
+        sharedText.setSelectionRange(0, 0);
+        sharedText.blur();
+        if (!isReading) {
+            sharedText.readOnly = false;
+            sharedText.classList.remove('bg-slate-100');
+        }
+        updateTtsUI();
+      };
+      
+      utterance.onerror = (e) => {
+        if (e.error !== 'canceled') {
+          console.error('Speech Error:', e);
+          isPlaying = false;
+          isPaused = false;
+          sharedText.setSelectionRange(0, 0);
+          sharedText.blur();
+          if (!isReading) {
+             sharedText.readOnly = false;
+             sharedText.classList.remove('bg-slate-100');
+          }
+          updateTtsUI();
+        }
+      };
+
+      if (!isReading) {
+         sharedText.readOnly = true;
+         sharedText.classList.add('bg-slate-100');
+      }
+      sharedText.focus();
+
+      window.speechSynthesis.speak(utterance);
+      isPlaying = true;
+      isPaused = false;
+      updateTtsUI();
+    }
+
+    function handlePause() {
+      if (isPlaying) {
+        window.speechSynthesis.pause();
+        isPaused = true;
+        isPlaying = false;
+        updateTtsUI();
+      }
+    }
+
+    function handleStop() {
+      window.speechSynthesis.cancel();
+      isPlaying = false;
+      isPaused = false;
+      try {
+        sharedText.setSelectionRange(0, 0);
+        sharedText.blur();
+        if (!isReading) {
+            sharedText.readOnly = false;
+            sharedText.classList.remove('bg-slate-100');
+        }
+      } catch(e){}
+      updateTtsUI();
+    }
+
+    function updateTtsUI() {
+      const hasText = sharedText.value.trim().length > 0;
+
+      if (!isPlaying) {
+        btnPlayAudio.style.display = 'flex';
+        btnPauseAudio.style.display = 'none';
+        playBtnText.textContent = isPaused ? 'Resume' : 'Play & Highlight';
+        btnPlayAudio.disabled = !hasText;
+      } else {
+        btnPlayAudio.style.display = 'none';
+        btnPauseAudio.style.display = 'flex';
+      }
+      btnStopAudio.disabled = (!isPlaying && !isPaused);
+    }
+
+    // --- App Init ---
+    loadHistory();
+    initTTS();
+  </script>
+</body>
+</html>
