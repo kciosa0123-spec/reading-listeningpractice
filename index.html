@@ -176,15 +176,22 @@
     </div>
 
     <div class="bg-transparent mt-8">
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 px-2">
+      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-4 px-2">
         <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
           <i data-lucide="history" class="w-6 h-6 text-slate-500"></i> Reading History
         </h2>
-        <div class="flex items-center gap-2 w-full sm:w-auto">
-          <button id="btn-export-csv" class="flex-1 sm:flex-none flex items-center justify-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-lg transition-colors shadow-sm">
+        <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          <button id="btn-export-csv" class="flex-1 lg:flex-none flex items-center justify-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2.5 rounded-lg transition-colors shadow-sm">
             <i data-lucide="file-down" class="w-4 h-4"></i> Export CSV
           </button>
-          <button id="btn-clear-history" class="text-sm text-red-500 hover:text-red-700 font-bold px-4 py-2.5 bg-red-50 rounded-lg hidden transition-colors">
+          <button id="btn-export-json" class="flex-1 lg:flex-none flex items-center justify-center gap-2 text-sm bg-violet-600 hover:bg-violet-700 text-white font-bold px-4 py-2.5 rounded-lg transition-colors shadow-sm" title="Download all saved practice records as a backup file">
+            <i data-lucide="database" class="w-4 h-4"></i> Save Data
+          </button>
+          <label class="flex-1 lg:flex-none flex items-center justify-center gap-2 text-sm bg-teal-600 hover:bg-teal-700 text-white font-bold px-4 py-2.5 rounded-lg transition-colors shadow-sm cursor-pointer" title="Load a previously saved practice data file">
+            <i data-lucide="upload" class="w-4 h-4"></i> Load Data
+            <input id="import-json-input" type="file" accept=".json,application/json" class="hidden">
+          </label>
+          <button id="btn-clear-history" class="flex-1 lg:flex-none flex items-center justify-center gap-2 text-sm text-red-500 hover:text-red-700 font-bold px-4 py-2.5 bg-red-50 rounded-lg hidden transition-colors">
             履歴全削除
           </button>
         </div>
@@ -205,7 +212,7 @@
   <script>
     lucide.createIcons();
 
-    // --- HTMLエスケープ関数 ---
+    // --- HTML/CSVエスケープ ---
     function escapeHtml(str = '') {
       return String(str)
         .replace(/&/g, '&amp;')
@@ -214,8 +221,6 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
-
-    // --- CSVエスケープ関数 ---
     function escapeCsv(value) {
       const str = String(value ?? '').replace(/"/g, '""');
       return `"${str}"`;
@@ -255,6 +260,10 @@
     const emptyHistory = document.getElementById('empty-history');
     const btnClearHistory = document.getElementById('btn-clear-history');
     const btnExportCsv = document.getElementById('btn-export-csv');
+    
+    // ★追加: JSON Save/Load Elements
+    const btnExportJson = document.getElementById('btn-export-json');
+    const importJsonInput = document.getElementById('import-json-input');
 
     // --- State ---
     let wordCount = 0;
@@ -272,7 +281,6 @@
     const HISTORY_KEY = 'readingPracticeHistory_v4';
     let historyData = [];
 
-    // ★修正: 日本語環境でローカライズ(翻訳)されてしまう特殊音声名も除外リストに追加
     const excludedVoices = [
       'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 
       'Deranged', 'Good News', 'Hysterical', 'Pipe Organ', 'Trinoids', 
@@ -446,6 +454,49 @@
       URL.revokeObjectURL(url);
     });
 
+    // ★追加: JSONエクスポート処理
+    btnExportJson.addEventListener('click', () => {
+      if (historyData.length === 0) {
+        alert('保存するデータがありません。');
+        return;
+      }
+      
+      const blob = new Blob([JSON.stringify(historyData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'reading_practice_saved_data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // ★追加: JSONインポート処理
+    importJsonInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (!Array.isArray(data)) {
+            alert('このファイルは有効な練習データではありません。');
+            return;
+          }
+          // データの読み込み
+          historyData = data;
+          saveHistory();
+          renderHistory();
+          alert('Practice Dataを読み込みました。');
+        } catch (err) {
+          console.error(err);
+          alert('ファイルの読み込みに失敗しました。');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = ''; // 連続で同じファイルを読み込めるようにリセット
+    });
+
     // --- WPM Calculator Logic ---
     btnStartRead.addEventListener('click', () => {
       if (wordCount === 0) {
@@ -560,7 +611,6 @@
     function loadVoices() {
       voices = window.speechSynthesis.getVoices();
       
-      // リストが取得できない場合のフォールバック（主にAndroid Edge向け）
       if (voices.length === 0) {
         if (voiceLoadRetryCount < 50) {
           voiceLoadRetryCount++;
@@ -575,7 +625,6 @@
       voiceSelect.innerHTML = '';
       const savedVoice = localStorage.getItem('prefVoiceWPM');
 
-      // "en"から始まるものに限定し、かつブラックリストの変な声を排除
       const enVoices = voices.filter(v => {
         const isEnglish = v.lang.toLowerCase().startsWith('en');
         const isNotExcluded = !excludedVoices.some(ex => v.name.includes(ex));
@@ -591,7 +640,6 @@
         const option = document.createElement('option');
         option.value = voice.name;
         
-        // ★修正: Android ChromeやGoogle系の音声はハイライト非対応である可能性が高いため、条件を広げて警告を表示
         const isLikelyUnsupported = voice.name.includes("Google") || (/Android/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent));
         
         if (isLikelyUnsupported) {
@@ -624,7 +672,7 @@
       window.speechSynthesis.cancel(); 
       const utterance = new SpeechSynthesisUtterance(sharedText.value);
       
-      window._ttsUtterance = utterance; // Chrome bug fix
+      window._ttsUtterance = utterance;
       
       utterance.rate = parseFloat(rateSlider.value);
       
