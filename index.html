@@ -10,6 +10,9 @@
     input[type=range] { accent-color: #4f46e5; }
     /* テキストエリアの選択（ハイライト）色を調整 */
     textarea::selection { background: #c7d2fe; color: #1e1b4b; }
+    /* ★追加: animate-fade-in が未定義だったため keyframes を定義 */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out; }
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800">
@@ -161,7 +164,7 @@
 
         <div class="mt-auto flex justify-center gap-3">
           <button id="btn-play-audio" class="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-4 rounded-xl font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-            <i data-lucide="play" class="w-5 h-5 fill-current"></i> <span id="play-btn-text">Play / Highlight</span>
+            <i data-lucide="play" class="w-5 h-5 fill-current"></i> <span id="play-btn-text">Play & Highlight</span>
           </button>
           
           <button id="btn-pause-audio" class="hidden flex-1 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-6 py-4 rounded-xl font-bold transition-all shadow-md active:scale-95">
@@ -212,6 +215,10 @@
   <script>
     lucide.createIcons();
 
+    // --- 環境判定 ---
+    // ★追加: Android Chrome は speechSynthesis の pause/resume が正常動作しないため判定フラグを用意
+    const IS_ANDROID = /Android/.test(navigator.userAgent);
+
     // --- HTML/CSVエスケープ ---
     function escapeHtml(str = '') {
       return String(str)
@@ -222,7 +229,10 @@
         .replace(/'/g, '&#39;');
     }
     function escapeCsv(value) {
-      const str = String(value ?? '').replace(/"/g, '""');
+      let str = String(value ?? '');
+      // ★修正: Excel等で開いた際の数式インジェクション防止（=, +, -, @, タブ始まりのセルを無害化）
+      if (/^[=+\-@\t]/.test(str)) str = "'" + str;
+      str = str.replace(/"/g, '""');
       return `"${str}"`;
     }
 
@@ -261,7 +271,6 @@
     const btnClearHistory = document.getElementById('btn-clear-history');
     const btnExportCsv = document.getElementById('btn-export-csv');
     
-    // ★追加: JSON Save/Load Elements
     const btnExportJson = document.getElementById('btn-export-json');
     const importJsonInput = document.getElementById('import-json-input');
 
@@ -277,6 +286,9 @@
     let isPlaying = false;
     let isPaused = false;
     let voiceLoadRetryCount = 0;
+    let speechWatchdog = null; // ★追加: Chrome長文停止バグ対策タイマー
+
+    const MIN_RECORD_TIME_MS = 2000; // ★追加: 誤タップによるゴミ記録防止の最低計測時間
 
     const HISTORY_KEY = 'readingPracticeHistory_v4';
     let historyData = [];
@@ -307,6 +319,22 @@
       return str.trim().split(/\s+/).filter(w => w.length > 0).length;
     }
 
+    // ★追加: textarea のロック/解除を一元管理（Finish後にreadOnlyが残るバグの修正含む）
+    function lockTextareaForReading() {
+      sharedText.readOnly = true;
+      sharedText.classList.add('bg-slate-100', 'border-emerald-200');
+      sharedText.classList.remove('bg-slate-50', 'hover:border-slate-300', 'focus:border-indigo-500', 'focus:bg-white');
+    }
+    function lockTextareaForTts() {
+      sharedText.readOnly = true;
+      sharedText.classList.add('bg-slate-100');
+    }
+    function unlockTextarea() {
+      sharedText.readOnly = false;
+      sharedText.classList.remove('bg-slate-100', 'border-emerald-200');
+      sharedText.classList.add('bg-slate-50', 'hover:border-slate-300', 'focus:border-indigo-500', 'focus:bg-white');
+    }
+
     // --- Event Listeners: Text Input ---
     sharedText.addEventListener('input', (e) => {
       wordCount = getWordCount(e.target.value);
@@ -316,15 +344,18 @@
 
     btnSample.addEventListener('click', () => {
       if (isReading) return;
+      // ★修正: 再生中にテキストを差し替えるとハイライト位置がズレるため、先に停止する
+      if (isPlaying || isPaused) handleStop();
       sharedText.value = "Machine learning is a subset of artificial intelligence that focuses on building systems that learn from data. Instead of being explicitly programmed to perform a task, these systems use algorithms to identify patterns in data and make predictions or decisions. Over time, as they are exposed to more data, their performance improves. This technology is behind many of the services we use daily, such as recommendation engines on streaming platforms, voice assistants on our smartphones, and fraud detection systems in banking.";
       updateTextStats();
     });
 
     btnClearText.addEventListener('click', () => {
       if (isReading) return;
+      // ★修正: クリア前に停止する（停止→クリアの順に変更）
+      if (isPlaying || isPaused) handleStop();
       sharedText.value = '';
       updateTextStats();
-      if (isPlaying || isPaused) handleStop();
     });
 
     function updateTextStats() {
@@ -335,16 +366,45 @@
     }
 
     // --- History Logic ---
+    // ★追加: レコードの型検証・サニタイズ（インポート/読み込み時の不正データ対策）
+    function sanitizeRecord(r) {
+      if (typeof r !== 'object' || r === null) return null;
+      const dateOk = typeof r.date === 'string' && !isNaN(Date.parse(r.date));
+      return {
+        id: String(r.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+        date: dateOk ? r.date : new Date().toISOString(),
+        studentNumber: String(r.studentNumber ?? ''),
+        studentName: String(r.studentName ?? ''),
+        topic: String(r.topic ?? ''),
+        memo: String(r.memo ?? ''),
+        wpm: Math.round(Number(r.wpm)) || 0,
+        time: String(r.time ?? ''),
+        words: Math.round(Number(r.words)) || 0,
+        textPreview: String(r.textPreview ?? ''),
+        fullText: String(r.fullText ?? '')
+      };
+    }
+
     function loadHistory() {
       try {
         const raw = localStorage.getItem(HISTORY_KEY);
-        if (raw) historyData = JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // ★修正: localStorage から読む際もサニタイズを通す
+          historyData = Array.isArray(parsed) ? parsed.map(sanitizeRecord).filter(Boolean) : [];
+        }
       } catch (e) { historyData = []; }
       renderHistory();
     }
 
     function saveHistory() {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData));
+      // ★修正: 容量超過（QuotaExceededError）時にユーザーへ通知
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData));
+      } catch (e) {
+        console.error(e);
+        alert('保存容量の上限に達したため、履歴を保存できませんでした。\n「Save Data」でバックアップを取ってから、古い記録を削除してください。');
+      }
     }
 
     function renderHistory() {
@@ -359,8 +419,18 @@
       
       historyList.innerHTML = historyData.map(record => {
         const dateObj = new Date(record.date);
-        const dateString = `${dateObj.getMonth()+1}/${dateObj.getDate()} ${dateObj.getHours().toString().padStart(2,'0')}:${dateObj.getMinutes().toString().padStart(2,'0')}`;
+        // ★修正: 年を含む表示に変更（学期をまたぐ運用への対応）
+        const dateString = isNaN(dateObj.getTime())
+          ? '----'
+          : `${dateObj.getFullYear()}/${dateObj.getMonth()+1}/${dateObj.getDate()} ${dateObj.getHours().toString().padStart(2,'0')}:${dateObj.getMinutes().toString().padStart(2,'0')}`;
         
+        // ★修正: 全フィールドをエスケープ（インポートデータ経由のXSS対策）
+        const idHtml = escapeHtml(record.id);
+        const wpmHtml = escapeHtml(String(record.wpm));
+        const timeHtml = escapeHtml(record.time);
+        const wordsHtml = escapeHtml(String(record.words));
+        const previewHtml = escapeHtml(record.textPreview);
+
         const sNumHtml = record.studentNumber ? escapeHtml(record.studentNumber) : '';
         const sNameHtml = record.studentName ? escapeHtml(record.studentName) : '<span class="text-slate-400 italic">No Name</span>';
         
@@ -374,7 +444,7 @@
           <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col hover:shadow-md transition-shadow relative group">
             <div class="flex justify-between items-center mb-3">
               <span class="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-1 rounded-md">${dateString}</span>
-              <button onclick="deleteRecord('${record.id}')" class="text-slate-300 hover:text-red-500 transition-colors" title="Delete">
+              <button class="btn-delete-record text-slate-300 hover:text-red-500 transition-colors" data-id="${idHtml}" title="Delete">
                 <i data-lucide="trash" class="w-4 h-4"></i>
               </button>
             </div>
@@ -385,16 +455,16 @@
             </div>
 
             <div class="flex items-end gap-2 mb-3">
-              <span class="text-3xl font-extrabold text-emerald-600 leading-none">${record.wpm}</span>
+              <span class="text-3xl font-extrabold text-emerald-600 leading-none">${wpmHtml}</span>
               <span class="text-sm font-bold text-emerald-700/70 mb-0.5">WPM</span>
             </div>
             
             <div class="flex gap-4 text-xs font-semibold text-slate-500 mb-3 pb-3 border-b border-slate-100">
-              <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5"></i> ${record.time}</span>
-              <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-3.5 h-3.5"></i> ${record.words} words</span>
+              <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5"></i> ${timeHtml}</span>
+              <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-3.5 h-3.5"></i> ${wordsHtml} words</span>
             </div>
             
-            <p class="text-sm text-slate-600 italic line-clamp-2 leading-relaxed mb-3">"${record.textPreview}"</p>
+            <p class="text-sm text-slate-600 italic line-clamp-2 leading-relaxed mb-3">"${previewHtml}"</p>
             
             ${record.memo ? `
             <div class="mt-auto bg-amber-50 border border-amber-100 p-3 rounded-xl text-sm text-slate-700 whitespace-pre-wrap">
@@ -407,11 +477,18 @@
       lucide.createIcons();
     }
 
-    window.deleteRecord = function(id) {
+    // ★修正: インラインonclickを廃止し、イベント委譲方式に変更（id経由のHTML注入対策）
+    historyList.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-delete-record');
+      if (!btn) return;
+      deleteRecord(btn.dataset.id);
+    });
+
+    function deleteRecord(id) {
       historyData = historyData.filter(r => r.id !== id);
       saveHistory();
       renderHistory();
-    };
+    }
 
     btnClearHistory.addEventListener('click', () => {
       if (confirm('すべての測定履歴を削除しますか？')) {
@@ -430,14 +507,15 @@
       
       const headers = ['Date', 'Student Number', 'Student Name', 'Topic', 'WPM', 'Time', 'Words', 'Memo', 'Transcript'];
       
+      // ★修正: すべてのフィールドを escapeCsv で統一的に処理
       const rows = historyData.map(rec => [
-        rec.date,
+        escapeCsv(rec.date),
         escapeCsv(rec.studentNumber),
         escapeCsv(rec.studentName),
         escapeCsv(rec.topic),
-        rec.wpm,
-        rec.time,
-        rec.words,
+        escapeCsv(rec.wpm),
+        escapeCsv(rec.time),
+        escapeCsv(rec.words),
         escapeCsv(rec.memo),
         escapeCsv(rec.fullText)
       ]);
@@ -454,7 +532,7 @@
       URL.revokeObjectURL(url);
     });
 
-    // ★追加: JSONエクスポート処理
+    // --- JSONエクスポート処理 ---
     btnExportJson.addEventListener('click', () => {
       if (historyData.length === 0) {
         alert('保存するデータがありません。');
@@ -470,7 +548,8 @@
       URL.revokeObjectURL(url);
     });
 
-    // ★追加: JSONインポート処理
+    // --- JSONインポート処理 ---
+    // ★修正: サニタイズを追加し、全置換ではなくidで重複排除しながらマージする方式に変更
     importJsonInput.addEventListener('change', (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -483,11 +562,21 @@
             alert('このファイルは有効な練習データではありません。');
             return;
           }
-          // データの読み込み
-          historyData = data;
+          const cleaned = data.map(sanitizeRecord).filter(Boolean);
+          if (cleaned.length === 0) {
+            alert('読み込める記録が見つかりませんでした。');
+            return;
+          }
+          const existingIds = new Set(historyData.map(r => r.id));
+          const newRecords = cleaned.filter(r => !existingIds.has(r.id));
+          const skipped = cleaned.length - newRecords.length;
+
+          historyData = [...newRecords, ...historyData]
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+
           saveHistory();
           renderHistory();
-          alert('Practice Dataを読み込みました。');
+          alert(`${newRecords.length}件の記録を読み込みました。` + (skipped > 0 ? `\n（既存と重複する${skipped}件はスキップしました）` : ''));
         } catch (err) {
           console.error(err);
           alert('ファイルの読み込みに失敗しました。');
@@ -509,9 +598,7 @@
       readingTime = 0;
       readingStartTime = Date.now();
       
-      sharedText.readOnly = true;
-      sharedText.classList.add('bg-slate-100', 'border-emerald-200');
-      sharedText.classList.remove('bg-slate-50', 'hover:border-slate-300', 'focus:border-indigo-500', 'focus:bg-white');
+      lockTextareaForReading();
       
       wpmStatus.textContent = 'Reading...';
       wpmStatus.className = 'text-sm font-bold px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-700 animate-pulse';
@@ -531,15 +618,21 @@
       isReading = false;
       clearInterval(readingInterval);
       
-      let calculatedWpm = 0;
-      const timeInMinutes = readingTime / 60000;
-      if (timeInMinutes > 0) {
-        calculatedWpm = Math.round(wordCount / timeInMinutes);
+      // ★修正: interval更新（最大100ms遅れ）に頼らず、Finish時点で正確な経過時間を再計算
+      readingTime = Date.now() - readingStartTime;
+      liveTime.textContent = formatTime(readingTime);
+      
+      // ★修正: 極端に短い計測（誤タップ）は記録しない
+      if (readingTime >= MIN_RECORD_TIME_MS) {
+        hideError();
+        const calculatedWpm = Math.round(wordCount / (readingTime / 60000));
         wpmValue.textContent = calculatedWpm;
         wpmTimeValue.textContent = formatTime(readingTime);
         wpmResult.classList.remove('hidden');
 
-        const preview = sharedText.value.substring(0, 50).replace(/\n/g, ' ') + '...';
+        // ★修正: 50文字未満のときは「...」を付けない／改行・連続空白を1スペースに正規化
+        const collapsed = sharedText.value.replace(/\s+/g, ' ').trim();
+        const preview = collapsed.length > 50 ? collapsed.substring(0, 50) + '…' : collapsed;
         
         const newRecord = {
           id: Date.now().toString(),
@@ -558,11 +651,18 @@
         historyData.unshift(newRecord);
         saveHistory();
         renderHistory();
+      } else {
+        showError('計測時間が短すぎるため（2秒未満）、記録されませんでした。');
       }
 
       wpmStatus.textContent = 'Finished';
       wpmStatus.className = 'text-sm font-bold px-4 py-1.5 rounded-full bg-slate-100 text-slate-500';
       liveTime.className = 'text-4xl font-mono font-bold text-slate-700';
+      
+      // ★修正: Finish後にreadOnlyが残るバグを修正（TTS再生中・一時停止中は維持）
+      if (!isPlaying && !isPaused) {
+        unlockTextarea();
+      }
       
       btnFinishRead.classList.add('hidden');
       btnStartRead.classList.remove('hidden');
@@ -572,9 +672,7 @@
     btnResetRead.addEventListener('click', () => {
       if (isReading) return;
       if (!isPlaying && !isPaused) {
-         sharedText.readOnly = false;
-         sharedText.classList.remove('bg-slate-100', 'border-emerald-200');
-         sharedText.classList.add('bg-slate-50', 'hover:border-slate-300', 'focus:border-indigo-500', 'focus:bg-white');
+        unlockTextarea();
       }
       
       readingTime = 0;
@@ -640,7 +738,7 @@
         const option = document.createElement('option');
         option.value = voice.name;
         
-        const isLikelyUnsupported = voice.name.includes("Google") || (/Android/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent));
+        const isLikelyUnsupported = voice.name.includes("Google") || (IS_ANDROID && !/Edg/.test(navigator.userAgent));
         
         if (isLikelyUnsupported) {
             option.textContent = `${voice.name} (${voice.lang}) ※ハイライト非対応`;
@@ -654,6 +752,26 @@
         voiceSelect.value = savedVoice;
       } else {
         voiceSelect.value = enVoices[0].name; 
+      }
+    }
+
+    // ★追加: Chromeデスクトップで長い読み上げが約15秒で無音停止する既知バグへの対策。
+    // 再生中に pause()→resume() を定期的に実行して停止を防ぐ。
+    // Androidでは pause/resume 自体が不安定で逆効果になるため適用しない。
+    function startSpeechWatchdog() {
+      if (IS_ANDROID) return;
+      stopSpeechWatchdog();
+      speechWatchdog = setInterval(() => {
+        if (isPlaying && !isPaused && window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }
+      }, 10000);
+    }
+    function stopSpeechWatchdog() {
+      if (speechWatchdog) {
+        clearInterval(speechWatchdog);
+        speechWatchdog = null;
       }
     }
 
@@ -708,41 +826,42 @@
       };
 
       utterance.onend = () => {
+        stopSpeechWatchdog();
         isPlaying = false;
         isPaused = false;
         sharedText.setSelectionRange(0, 0);
         sharedText.blur();
         if (!isReading) {
-            sharedText.readOnly = false;
-            sharedText.classList.remove('bg-slate-100');
+          unlockTextarea();
         }
         updateTtsUI();
       };
       
+      // ★修正: Chrome系は cancel() 時に 'interrupted' を返すため、こちらもログ対象から除外
       utterance.onerror = (e) => {
-        if (e.error !== 'canceled') {
+        if (e.error !== 'canceled' && e.error !== 'interrupted') {
           console.error('Speech Error:', e);
+          stopSpeechWatchdog();
           isPlaying = false;
           isPaused = false;
           sharedText.setSelectionRange(0, 0);
           sharedText.blur();
           if (!isReading) {
-             sharedText.readOnly = false;
-             sharedText.classList.remove('bg-slate-100');
+            unlockTextarea();
           }
           updateTtsUI();
         }
       };
 
       if (!isReading) {
-         sharedText.readOnly = true;
-         sharedText.classList.add('bg-slate-100');
+        lockTextareaForTts();
       }
       sharedText.focus();
 
       window.speechSynthesis.speak(utterance);
       isPlaying = true;
       isPaused = false;
+      startSpeechWatchdog();
       updateTtsUI();
     }
 
@@ -756,6 +875,7 @@
     }
 
     function handleStop() {
+      stopSpeechWatchdog();
       window.speechSynthesis.cancel();
       isPlaying = false;
       isPaused = false;
@@ -763,8 +883,7 @@
         sharedText.setSelectionRange(0, 0);
         sharedText.blur();
         if (!isReading) {
-            sharedText.readOnly = false;
-            sharedText.classList.remove('bg-slate-100');
+          unlockTextarea();
         }
       } catch(e){}
       updateTtsUI();
@@ -778,6 +897,13 @@
         btnPauseAudio.style.display = 'none';
         playBtnText.textContent = isPaused ? 'Resume' : 'Play & Highlight';
         btnPlayAudio.disabled = !hasText;
+      } else if (IS_ANDROID) {
+        // ★修正: Android Chrome では pause/resume が機能しないため Pause ボタンを出さず、
+        // 再生中は Play ボタンを無効化表示に切り替える（Stopのみ操作可能）
+        btnPlayAudio.style.display = 'flex';
+        btnPlayAudio.disabled = true;
+        playBtnText.textContent = 'Playing...';
+        btnPauseAudio.style.display = 'none';
       } else {
         btnPlayAudio.style.display = 'none';
         btnPauseAudio.style.display = 'flex';
